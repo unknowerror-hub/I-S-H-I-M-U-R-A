@@ -1,0 +1,6 @@
+{
+  "module_name": "Sadako",
+  "update_interval_seconds": 5,
+  "monitored_interface": "auto",
+  "log_history_limit": 1000
+}

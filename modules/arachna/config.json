@@ -1,0 +1,7 @@
+{
+  "module_name": "Arachna",
+  "vuln_db_status": "UPDATED",
+  "total_signatures": 142053,
+  "threads": 50,
+  "raw_socket_interface": "auto"
+}

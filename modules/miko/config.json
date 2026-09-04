@@ -1,0 +1,6 @@
+{
+  "module_name": "Miko",
+  "ai_mode": "CPU",
+  "export_directory": "/opt/ishimura/exports",
+  "auto_analyze": true
+}

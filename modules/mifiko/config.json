@@ -1,0 +1,6 @@
+{
+  "module_name": "Mifiko",
+  "deep_code_analysis": true,
+  "auto_fix_approved": false,
+  "privilege_escalation_alert": true
+}

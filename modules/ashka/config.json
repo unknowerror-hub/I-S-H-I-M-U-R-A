@@ -1,0 +1,6 @@
+{
+  "module_name": "Ashka",
+  "shadow_copy_path": "/opt/ishimura/.shadow_storage",
+  "backup_archive_path": "/opt/ishimura/backups",
+  "last_backup_time": 0
+}

@@ -1,0 +1,10 @@
+{
+  "module_name": "Kira",
+  "hardware_acceleration": "CPU",
+  "telegram_notifications": false,
+  "telegram_token": "",
+  "telegram_chat_id": "",
+  "email_notifications": false,
+  "smtp_server": "localhost",
+  "cluster_nodes": []
+}
