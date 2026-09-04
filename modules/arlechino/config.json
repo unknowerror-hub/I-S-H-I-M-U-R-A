@@ -1,9 +1,5 @@
 {
-  "module_name": "Arlechino",
-  "listen_ip": "0.0.0.0",
   "listen_port": 5432,
   "db_user": "ishimura_admin",
-  "db_name": "ishimura_db",
-  "cluster_mode": false,
-  "cluster_nodes": []
+  "db_name": "ishimura"
 }

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# ==============================================================================
-# SYSTEM ISHIMURA — MODULE: ARACHNA [STABLE REAL-TIME LOGGING ENGINE]
-# ==============================================================================
 
 import os
 import sys
@@ -15,35 +12,34 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
 
 BASE_DIR = "/opt/ishimura"
-WEB_CONFIG_PATH = os.path.join(BASE_DIR, "web/config.php")
-DB_CONFIG_PATH = os.path.join(BASE_DIR, "modules/arlechino/config.json")
-PROGRESS_PATH = "/opt/ishimura/modules/arachna/arachna_progress.json"
-LOG_PATH = "/opt/ishimura/modules/arachna/arachna_terminal.log"
+PROGRESS_PATH = "/tmp/arachna_progress.json"
+LOG_PATH = "/tmp/arachna_terminal.log"
 
 def log_to_terminal(message):
-    """ Принудительное атомарное логирование в файл для AJAX вывода """
     with open(LOG_PATH, 'a', encoding='utf-8') as f:
         f.write(message + "\n")
     print(message, flush=True)
 
 def load_db_credentials():
-    with open(DB_CONFIG_PATH, 'r') as f:
-        cfg = json.load(f)
-    password = "ishimura_default_pass"
-    if os.path.exists(WEB_CONFIG_PATH):
-        with open(WEB_CONFIG_PATH, 'r') as f:
-            content = f.read()
-            match = re.search(r"define\s*\(\s*['\"]DB_PASS['\"]\s*,\s*['\"](.*?)['\"]\s*\);", content)
-            if match: password = match.group(1)
-    return {"host": "127.0.0.1", "port": cfg["listen_port"], "user": cfg["db_user"], "password": password, "dbname": cfg["db_name"]}
+    # Жестко прописываем ваши административные реквизиты
+    return {
+        "host": "127.0.0.1",
+        "port": 5432,
+        "user": "ishimura_admin",
+        "password": "Nh0uk0lbn@_",
+        "dbname": "ishimura"
+    }
 
 def get_local_ip():
+    import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(('10.255.255.255', 1))
+        s.connect(("10.255.255.255", 1))
         IP = s.getsockname()[0]
-    except Exception: IP = '127.0.0.1'
-    finally: s.close()
+    except Exception:
+        IP = "127.0.0.1"
+    finally:
+        s.close()
     return IP
 
 def save_progress(percent, last_message):
@@ -66,7 +62,8 @@ def perform_banner_grabbing(target_ip, port):
                 return True, f"Active port (No banner fallback: {str(e)})"
     except Exception as e:
         log_to_terminal(f"[-] [СБОЙ ПОДКЛЮЧЕНИЯ] {target_ip}:{port} - {str(e)}")
-    finally: sock.close()
+    finally: 
+        sock.close()
     return False, ""
 
 def match_vulnerabilities(service_name, banner):
@@ -85,15 +82,17 @@ def match_vulnerabilities(service_name, banner):
     return cve_id, description, severity
 
 def process_target(source_ip, target_ip, port, target_domain, db_creds):
-    log_to_terminal(f"[*] [ИНЪЕКЦИЯ RAW] Отправка SYN-пакета на {target_ip}:{port} через C-движок...")
+    log_to_terminal(f"[*] [ИНЪЕКЦИЯ RAW] Отправка SYN-пакета на {target_ip}:{port}...")
     try:
         subprocess.run(["/opt/ishimura/modules/arachna/scanner", source_ip, str(target_ip), str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except: pass
+    except: 
+        pass
 
     is_open, banner = perform_banner_grabbing(target_ip, port)
-    if not is_open: return None
+    if not is_open: 
+        return None
 
-    service_map = {80: "HTTP", 443: "HTTPS", 22: "SSH", 21: "FTP", 23: "Telnet", 25: "SMTP", 3306: "MySQL", 5432: "PostgreSQL"}
+    service_map = {21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 80: "HTTP", 443: "HTTPS", 3306: "MySQL", 5432: "PostgreSQL"}
     service_name = service_map.get(port, "Custom Service")
     cve_id, desc, severity = match_vulnerabilities(service_name, banner)
 
@@ -118,7 +117,7 @@ def process_target(source_ip, target_ip, port, target_domain, db_creds):
                 INSERT INTO vulnerability_scans (target_ip, target_domain, port, service_name, service_version, cve_id, severity, description)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
             """, (str(target_ip), target_domain, port, service_name, banner[:100], cve_id, severity, desc))
-            log_to_terminal(f"[+] [ЗАПИСЬ СУБД] Нахоложден новый порт {target_ip}:{port} -> Занесено в историю.")
+            log_to_terminal(f"[+] [ЗАПИСЬ СУБД] Данные уязвимости {target_ip}:{port} успешно сохранены в PostgreSQL.")
         conn.commit()
         cursor.close()
         conn.close()
@@ -130,7 +129,6 @@ def start_scan_pipeline(raw_input):
     source_ip = get_local_ip()
     target_string = raw_input.strip()
     
-    # Полностью затираем старый лог перед новым запуском сканирования
     with open(LOG_PATH, 'w', encoding='utf-8') as f:
         f.write("")
 
@@ -159,7 +157,7 @@ def start_scan_pipeline(raw_input):
             save_progress(100, "Ошибка DNS")
             return
 
-    target_ports = [21, 22, 23, 25, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8080]
+    target_ports = [21, 22, 23, 25, 80, 443, 3306, 5432]
     total_tasks = len(hosts) * len(target_ports)
     completed_tasks = 0
 
@@ -174,18 +172,12 @@ def start_scan_pipeline(raw_input):
             save_progress(current_pct, f"Сканирование: {completed_tasks}/{total_tasks}...")
             future.result()
 
-    log_to_terminal("\n[*] [ИИ-КОНТУР] Передача управления модулю Miko для автопатчинга...")
-    save_progress(95, "Запуск сквозного ИИ-анализа модулем Miko...")
-    try:
-        subprocess.run(["/usr/bin/python3", "/opt/ishimura/modules/miko/analyzer.py", "--pass", db_creds["password"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        log_to_terminal("[+] [ИИ-УСПЕХ] Модуль Miko успешно сгенерировал патчи в фоне.")
-    except: pass
-
     log_to_terminal("\n[+] ==========================================================================")
-    log_to_terminal("[+] СУПЕР-СКАН АКТИВНОСТИ ЗАВЕРШЕН. Лог зафиксирован на экране.")
+    log_to_terminal("[+] СУПЕР-СКАН АКТИВНОСТИ ЗАВЕРШЕН. Данные зафиксированы.")
     log_to_terminal("[+] ==========================================================================")
     save_progress(100, "Аудит полностью завершен.")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2: sys.exit(1)
+    if len(sys.argv) < 2: 
+        sys.exit(1)
     start_scan_pipeline(sys.argv[1])

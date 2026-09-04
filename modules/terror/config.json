@@ -1,6 +1,8 @@
 {
   "module_name": "Terror",
-  "exploit_storage": "/opt/ishimura/exploits",
-  "github_search": true,
-  "interactive_sessions_count": 0
+  "storage_generated": "/opt/ishimura/exploits/generated",
+  "storage_github": "/opt/ishimura/exploits/github_poc",
+  "listener_ip": "0.0.0.0",
+  "listener_port": 4444,
+  "github_token": ""
 }
