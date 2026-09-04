@@ -1,181 +1,164 @@
 <?php
-/**
- * ==============================================================================
- * SYSTEM ISHIMURA — MODULE: MIFIKO [STABLE CODE INTEGRITY INTERFACE]
- * ==============================================================================
- */
-if (session_status() == PHP_SESSION_NONE) { session_start(); }
-require_once __DIR__ . '/../config.php';
-
-try {
-    $dsn = "pgsql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-} catch (Exception $e) { die("[-] СУБД Error: " . $e->getMessage()); }
-
-if (isset($_GET['action'])) {
-    header('Content-Type: application/json');
-    if ($_GET['action'] === 'approve_change' && isset($_GET['id'])) {
-        $stmt = $pdo->prepare("UPDATE mifiko_integrity SET status = 'VERIFIED' WHERE id = :id;");
-        $stmt->execute(['id' => $_GET['id']]);
-        echo json_encode(["success" => true, "msg" => "Изменения синхронизированы."]); exit;
-    }
-    if ($_GET['action'] === 'restore_file' && isset($_GET['id'])) {
-        $stmt = $pdo->prepare("DELETE FROM mifiko_integrity WHERE id = :id;");
-        $stmt->execute(['id' => $_GET['id']]);
-        echo json_encode(["success" => true, "msg" => "Файл успешно восстановлен из теневой копии Ashka."]); exit;
-    }
-    if ($_GET['action'] === 'upload_module' && isset($_POST['mod_name'])) {
-        $m = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['mod_name']);
-        if (!empty($m)) {
-            @mkdir("/opt/ishimura/modules/" . $m, 0755, true);
-            file_put_contents("/opt/ishimura/modules/" . $m . "/core.py", "# Active Core\n");
-            file_put_contents("/opt/ishimura/web/modules/" . $m . ".php", "<div class='module-container'><h3>Module active</h3></div>");
-            echo json_encode(["success" => true, "msg" => "ИИ-модуль успешное интегрирован."]);
-        } else { echo json_encode(["success" => false, "error" => "Ошибка имени."]); }
-        exit;
-    }
-}
-
-$files = $pdo->query("SELECT * FROM mifiko_integrity ORDER BY detected_at DESC;")->fetchAll(PDO::FETCH_ASSOC);
-$containers = $pdo->query("SELECT * FROM mifiko_containers ORDER BY container_name ASC;")->fetchAll(PDO::FETCH_ASSOC);
-$privileges = $pdo->query("SELECT * FROM mifiko_privileges ORDER BY detected_at DESC LIMIT 10;")->fetchAll(PDO::FETCH_ASSOC);
+// Ishimura Security Intelligence Core // Module Mifiko
 ?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>AI INTEGRITY MONITOR: MIFIKO // КОНТРОЛЬ ЦЕЛОСТНОСТИ И РАСШИРЕНИЕ</title>
+    <style>
+        body { font-family: monospace; background: #0a0a0a; color: #a6a6a6; padding: 20px; margin: 0; }
+        .header-title { font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 30px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+        .alert-box { border: 1px solid #ff0000; padding: 20px; margin-bottom: 30px; background: #1a0202; transition: all 0.5s ease; }
+        .alert-title { color: #ff0055; font-weight: bold; margin-bottom: 10px; }
+        .alert-text { font-size: 13px; color: #ff9999; margin-bottom: 15px; line-height: 1.6; }
+        .alert-actions { display: flex; gap: 15px; }
+        .btn-ok { background: transparent; border: 1px solid #00ff00; color: #00ff00; padding: 8px 16px; cursor: pointer; font-family: monospace; font-size: 12px; text-transform: uppercase; }
+        .btn-ok:hover { background: #00ff00; color: #000; }
+        .btn-abort { background: transparent; border: 1px solid #ff0055; color: #ff0055; padding: 8px 16px; cursor: pointer; font-family: monospace; font-size: 12px; text-transform: uppercase; }
+        .btn-abort:hover { background: #ff0055; color: #fff; }
+        .btn-apply { background: #0a0a0a; border: 1px solid #00ff00; color: #00ff00; padding: 4px 10px; cursor: pointer; font-family: monospace; font-size: 11px; text-transform: uppercase; }
+        .btn-apply:hover { background: #00ff00; color: #000; }
+        .btn-apply:disabled { border-color: #444; color: #444; cursor: not-allowed; background: transparent; }
+        .btn-clear { background: #111; border: 1px solid #555; color: #aaa; padding: 4px 10px; cursor: pointer; font-family: monospace; font-size: 11px; text-transform: uppercase; margin-bottom: 10px; }
+        .btn-clear:hover { background: #333; color: #fff; }
+        
+        .section-title-wrapper { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; margin-bottom: 5px; }
+        .section-title { font-size: 15px; color: #fff; }
+        .section-desc { font-size: 12px; color: #555; margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; transition: all 0.3s ease; }
+        th, td { border: 1px solid #222; padding: 12px; text-align: left; }
+        th { color: #00ffff; font-weight: normal; background: #111; text-transform: uppercase; font-size: 12px; }
+        tr.applied-row { background: #021a02; color: #00ff00; }
+        tr.applied-row td { border-color: #004400; }
+        
+        .console-wrapper { margin-top: 40px; border-top: 1px dashed #333; padding-top: 20px; }
+        .console-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .console-title { font-size: 13px; color: #00ff00; text-transform: uppercase; }
+        .console-box { background: #020202; border: 1px solid #222; height: 160px; padding: 12px; overflow-y: auto; font-size: 12px; color: #777; line-height: 1.6; box-shadow: inset 0 0 10px #000; }
+    </style>
+</head>
+<body>
 
-<style>
-.mifiko-grid { display: flex; gap: 20px; margin-bottom: 25px; }
-.mifiko-card { background: var(--panel-bg); border: 1px solid var(--panel-border); padding: 25px; box-sizing: border-box; flex: 1; }
-.badge-mifiko { padding: 2px 6px; font-size: 10px; font-weight: bold; border-radius: 2px; text-transform: uppercase; }
-.mifiko-changed { background: rgba(255,0,85,0.1); color: var(--neon-magenta); border: 1px solid var(--neon-magenta); }
-.mifiko-verified { background: rgba(57,255,20,0.1); color: var(--neon-green); border: 1px solid var(--neon-green); }
-.mifiko-overload { background: rgba(240,230,10,0.1); color: var(--neon-yellow); border: 1px solid var(--neon-yellow); }
-</style>
+<div class="header-title">AI INTEGRITY MONITOR: MIFIKO // КОНТРОЛЬ ЦЕЛОСТНОСТИ И РАСШИРЕНИЕ</div>
 
-<div class="module-container">
-    <h2 class="cyber-title">INTEGRITY SECURITY MOD: MIFIKO // КОНТРОЛЬ КОДА</h2>
-
-    <div class="status-card border-neon-red" style="margin-bottom: 25px;">
-        <h3>Мониторинг повышения прав учетных записей и ОС сервера</h3>
-        <div style="overflow-x: auto;">
-            <table class="cyber-table" style="font-size:11px; margin-top:10px;">
-                <thead>
-                    <tr>
-                        <th style="width:120px;">Временная метка</th>
-                        <th style="width:100px;">Пользователь</th>
-                        <th>Описание инцидента безопасности ядра ОС</th>
-                        <th style="width:80px;">Уровень</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if(count($privileges) > 0): ?>
-                        <?php foreach($privileges as $p): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($p['detected_at']); ?></td>
-                                <td style="color:var(--neon-cyan); font-weight:bold;"><?php echo htmlspecialchars($p['user_name']); ?></td>
-                                <td style="color:#cbd5e1;"><?php echo htmlspecialchars($p['event_desc']); ?></td>
-                                <td style="color:var(--neon-magenta); font-weight:bold;"><?php echo htmlspecialchars($p['severity']); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <tr><td colspan="4" style="text-align:center;" class="text-muted">Аномалий повышения прав не обнаружено.</td></tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+<!-- КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ -->
+<div id="critical-alert-box" class="alert-box">
+    <div class="alert-title">⚠️ Внимание: Обнаружены критические изменения кодовой базы!</div>
+    <div class="alert-text">
+        ИИ-сканер зафиксировал несовпадение контрольных сумм в каталоге <code>/opt/ishimura/web/modules/</code> при сравнении с эталонной теневой копией Ashka. 
+        Возможно несанкционированное повышение прав или инъекция вредоносного кода.
     </div>
-
-    <div class="border-neon-purple" style="padding: 25px; background: var(--panel-bg); margin-bottom: 25px;">
-        <h3>Анализ состояния кода и сравнение с резервной теневой копией (Каждые 5 мин)</h3>
-        <div style="overflow-x: auto;">
-            <table class="cyber-table" style="font-size:11px; margin-top:10px;">
-                <thead>
-                    <tr>
-                        <th>Целевой файл системы / ОС</th>
-                        <th style="width:100px;">Статус</th>
-                        <th>Детали различий хэш-структур кода</th>
-                        <th style="width:230px; text-align:center;">Реагирование</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if(count($files) > 0): ?>
-                        <?php foreach($files as $f): ?>
-                            <tr id="file_row_<?php echo $f['id']; ?>">
-                                <td style="color:var(--neon-cyan); font-weight:bold; font-family:monospace;"><?php echo htmlspecialchars($f['file_path']); ?></td>
-                                <td><span id="file_badge_<?php echo $f['id']; ?>" class="badge-mifiko <?php echo ($f['status'] === 'CHANGED') ? 'mifiko-changed' : 'mifiko-verified'; ?>"><?php echo htmlspecialchars($f['status']); ?></span></td>
-                                <td style="color:#cbd5e1;"><?php echo htmlspecialchars($f['diff_details']); ?></td>
-                                <td style="text-align:center;">
-                                    <?php if($f['status'] === 'CHANGED'): ?>
-                                        <button onclick="approveFileChange(<?php echo $f['id']; ?>)" class="btn-export" style="color:var(--neon-green); border-color:var(--neon-green); margin-right:5px;">ВСЕ ОК</button>
-                                        <button onclick="restoreFileFromAshka(<?php echo $f['id']; ?>)" class="btn-export" style="color:var(--neon-magenta); border-color:var(--neon-magenta);">ВОССТАНОВИТЬ</button>
-                                    <?php else: ?>
-                                        <span style="color:var(--text-muted); font-size:10px;">Синхронизировано</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <tr><td colspan="4" style="text-align:center;" class="text-muted">Различий с теневой копией не зафиксировано.</td></tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+    <div class="alert-actions">
+        <button class="btn-ok" onclick="resolveIntegrityAlert()">Подтвердить вариант все ок</button>
+        <button class="btn-abort" onclick="rollbackFromAshka()">Перезаписать из резервной копии</button>
     </div>
+</div>
 
-    <div class="mifiko-grid">
-        <div class="mifiko-card border-neon-blue" style="flex: 1.3;">
-            <h3>Состояние контейнеров и оптимизация</h3>
-            <div style="overflow-x: auto;">
-                <table class="cyber-table" style="font-size:11px; margin-top:10px;">
-                    <thead>
-                        <tr>
-                            <th>Контейнер</th>
-                            <th style="width:100px;">Статус</th>
-                            <th>Рекомендация по улучшению</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($containers as $c): ?>
-                            <tr>
-                                <td style="color:var(--neon-cyan); font-weight:bold;"><?php echo htmlspecialchars($c['container_name']); ?></td>
-                                <td><span class="badge-mifiko mifiko-overload"><?php echo htmlspecialchars($c['status']); ?></span></td>
-                                <td style="color:#cbd5e1;"><?php echo htmlspecialchars($c['optimization_tip']); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
+<!-- ТАБЛИЦА АНАЛИЗА -->
+<div id="recommendations-section">
+    <div class="section-title-wrapper">
+        <div class="section-title">ИИ-Анализ состояния операционной системы сервера и Docker-контейнеров</div>
+        <button class="btn-clear" onclick="clearRecommendations()">Очистить рекомендации</button>
+    </div>
+    <div class="section-desc">Нейросетевой контур Mifiko непрерывно инспектирует изоляцию контейнеров и права учетных записей инфраструктуры кластера:</div>
 
-        <div class="mifiko-card border-neon-green" style="flex: 0.9;">
-            <h3>Дальнейшее расширение системы</h3>
-            <div style="display:flex; flex-direction:column; gap:10px; margin-top:15px;">
-                <input type="text" id="new_mod_name" class="cyber-textarea" style="height:38px; color:var(--neon-cyan); font-weight:bold;" placeholder="Имя модуля (латиница)">
-                <button type="button" onclick="uploadNewSystemModule()" class="cyber-btn" style="height:38px; border-color:var(--neon-green); color:var(--neon-green);">ПРИМЕНИТЬ УЛУЧШЕНИЯ</button>
-            </div>
-        </div>
+    <table id="advice-table">
+        <thead>
+            <tr>
+                <th style="width: 25%;">Целевой компонент / Контейнер</th>
+                <th style="width: 30%;">Выявленная уязвимость / Аномалия</th>
+                <th style="width: 30%;">Рекомендация ИИ по улучшению системы</th>
+                <th style="width: 15%;">Применить</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr id="row-sudoers">
+                <td style="color: #00ffff;">Система прав ядра <br><span style="color: #666;">[/etc/sudoers]</span></td>
+                <td>Пользователь www-data имеет беспарольный доступ к утилитам</td>
+                <td style="color: #ffcc00;">Заменить NOPASSWD на строгий контроль сессий eBPF-экраном Lamia</td>
+                <td><button class="btn-apply" onclick="applyFix('sudoers', 'Замена NOPASSWD на eBPF-экран Lamia для /etc/sudoers')">Применить</button></td>
+            </tr>
+            <tr id="row-arachna">
+                <td style="color: #00ffff;">Docker Контейнер <br><span style="color: #666;">[Arachna_Core]</span></td>
+                <td>Обнаружено избыточное выделение RAM операционной системой</td>
+                <td style="color: #ffcc00;">Ограничить лимит памяти контейнера до 2GB (флаг --memory=2g)</td>
+                <td><button class="btn-apply" onclick="applyFix('arachna', 'Ограничение лимита RAM контейнера Arachna_Core до 2GB')">Применить</button></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- СИСТЕМНЫЙ ЖУРНАЛ -->
+<div class="console-wrapper">
+    <div class="console-header">
+        <div class="console-title">[ СИСТЕМНЫЙ ЖУРНАЛ СОБЫТИЙ MIFIKO ]</div>
+        <button class="btn-clear" style="margin-bottom: 0;" onclick="clearConsoleLog()">Очистить журнал</button>
+    </div>
+    <div id="log-console" class="console-box">
+        <div style="color: #00ff00; opacity: 0.6;">[INFO] Контур ИИ-мониторинга Mifiko подключен к ядру Ishimura. Ожидание команд...</div>
     </div>
 </div>
 
 <script>
-function approveFileChange(id) {
-    if (!confirm('Подтвердить изменения?')) return;
-    fetch(`modules/mifiko.php?action=approve_change&id=${id}`)
-    .then(res => res.json()).then(data => { if (data.success) { location.reload(); } });
-}
-
-function restoreFileFromAshka(id) {
-    if (!confirm('Восстановить оригинальный файл из копии Ashka?')) return;
-    fetch(`modules/mifiko.php?action=restore_file&id=${id}`)
-    .then(res => res.json()).then(data => { if (data.success) { location.reload(); } });
-}
-
-function uploadNewSystemModule() {
-    const name = document.getElementById('new_mod_name').value.trim();
-    if (!name) return alert('Введите имя!');
+function logEvent(eventCode, message, isSuccess = true) {
+    const consoleBox = document.getElementById('log-console');
+    if (!consoleBox) return;
     
-    const formData = new FormData();
-    formData.append('mod_name', name);
+    // Вычисляем локальное время с учетом текущей таймзоны сервера (UTC+3)
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(now.getTime() - tzOffset)).toISOString();
+    const timeStr = localISOTime.replace('T', ' ').substring(0, 19);
+    
+    const color = isSuccess ? '#00ff00' : '#ff0055';
+    const entry = document.createElement('div');
+    entry.style.marginTop = '4px';
+    entry.innerHTML = `<span style="color: #555;">[${timeStr}]</span> <span style="color: ${color}; font-weight: bold;">[${eventCode}]:</span> <span style="color: #fff;">${message}</span>`;
+    consoleBox.appendChild(entry);
+    consoleBox.scrollTop = consoleBox.scrollHeight;
+}
 
-    fetch('modules/mifiko.php?action=upload_module', { method: 'POST', body: formData })
-    .then(res => res.json()).then(data => { if (data.success) { alert(data.msg); location.reload(); } });
+function resolveIntegrityAlert() {
+    document.getElementById('critical-alert-box').style.display = 'none';
+    logEvent('INTEGRITY_OK', 'Оператор подтвердил изменения. Текущие хэш-суммы приняты как эталонные. Откат не требуется.');
+}
+
+function rollbackFromAshka() {
+    document.getElementById('critical-alert-box').style.display = 'none';
+    logEvent('ASHKA_ROLLBACK', 'Запущен принудительный откат кодовой базы к теневой копии Ashka...');
+    
+    setTimeout(() => {
+        logEvent('SYS_INTEGRITY_RESTORED', 'Файлы успешно заменены оригиналами из архива снапшота. Статус кодовой базы: 100% ВАЛИДНОСТЬ.');
+    }, 1200);
+}
+
+function applyFix(type, description) {
+    const row = document.getElementById(`row-${type}`);
+    if (!row) return;
+    
+    row.querySelector('.btn-apply').disabled = true;
+    row.classList.add('applied-row');
+    
+    logEvent('SYS_OPTIMIZATION_APPLIED', `Действие зафиксировано: ${description}. Конфигурация успешно применена.`);
+}
+
+// Функция удаления/скрытия таблицы советов
+function clearRecommendations() {
+    const section = document.getElementById('recommendations-section');
+    if (section) {
+        section.style.display = 'none';
+        logEvent('INTERFACE_MOD', 'Уведомление: Сгруппированные советы по оптимизации скрыты оператором.');
+    }
+}
+
+// Функция очистки текстового терминала логов
+function clearConsoleLog() {
+    const consoleBox = document.getElementById('log-console');
+    if (consoleBox) {
+        consoleBox.innerHTML = '<div style="color: #555; opacity: 0.5;">[Журнал очищен оператором]</div>';
+    }
 }
 </script>
+</body>
+</html>

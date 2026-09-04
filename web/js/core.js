@@ -1,3 +1,12 @@
+
+// [Ishimura Core] Глобальная функция синхронизации системного времени (UTC+3)
+function getIshimuraLocalTime() {
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000;
+    const localISO = (new Date(now.getTime() - tzOffset)).toISOString();
+    return localISO.replace('T', ' ').substring(0, 19);
+}
+
 /**
  * ==============================================================================
  * SYSTEM ISHIMURA — CLIENT SIDE ENGINE (CORE JS)

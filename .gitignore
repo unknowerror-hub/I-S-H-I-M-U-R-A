@@ -1,0 +1,4 @@
+backups/*.tar.gz
+**/__pycache__/
+*.pyc
+system_token.key
